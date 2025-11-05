@@ -112,7 +112,7 @@ In this codebase, we provide several adaptations to the original framework to su
 - Support for [Weights & Biases](https://wandb.ai/site) and other logging tools in the [Logger](torchreid/utils/logging/logger.py) class.
 - An [EngineState](torchreid/utils/engine_state.py) class to keep track of training epoch, etc.
 - A new [ranking visualization](torchreid/utils/visualization/visualize_query_gallery_rankings.py) tool to display part heatmaps, local distance for each part and other metrics.
-- For more information about all available configuration and parameters, please have a look at the [default config file](scripts/default_config.py).
+- For more information about all available configuration and parameters, please have a look at the [default config file](torchreid/scripts/default_config.py).
 
 You can also have a look at the original [Torchreid README](Torchreid_original_README.rst) for additional information, such as documentation, how-to instructions, etc.
 Be aware that some of the original Torchreid functionnality and models might be broken (for example, we don't support video re-id yet).
@@ -181,7 +181,7 @@ Make also sure to set `data.root` config to your dataset root directory path, i.
 You can create human parsing labels for your own dataset using the following command:
 
     conda activate bpbreid
-    python scripts/get_labels --source [Dataset Path] 
+    python torchreid/scripts/get_labels --source [Dataset Path] 
 
 The labels will be saved under the source directory in the *masks* folder as per the code convention.
 
@@ -195,12 +195,12 @@ The configuration used to obtain the pre-trained weights is also saved within th
 You can test the above downloaded models using the following command:
 
     conda activate bpbreid
-    python scripts/main.py --config-file configs/bpbreid/bpbreid_<target_dataset>_test.yaml
+    python torchreid/scripts/main.py --config-file configs/bpbreid/bpbreid_<target_dataset>_test.yaml
     
 For instance, for the Market-1501 dataset:
 
     conda activate bpbreid
-    python scripts/main.py --config-file configs/bpbreid/bpbreid_market1501_test.yaml
+    python torchreid/scripts/main.py --config-file configs/bpbreid/bpbreid_market1501_test.yaml
     
 Configuration files for other datasets are available under `configs/bpbreid/`.
 Make sure the `model.load_weights` in these `yaml` config files points to the pre-trained weights you just downloaded. 
@@ -210,12 +210,12 @@ Training configs for five datasets (Market-1501, DukeMTMC-reID, Occluded-Duke, O
 A training procedure can be launched with:
 
     conda activate bpbreid
-    python ./scripts/main.py --config-file configs/bpbreid/bpbreid_<target_dataset>_train.yaml
+    python ./torchreid/scripts/main.py --config-file configs/bpbreid/bpbreid_<target_dataset>_train.yaml
     
 For instance, for the Occluded-Duke dataset:
 
     conda activate bpbreid
-    python scripts/main.py --config-file configs/bpbreid/bpbreid_occ_duke_train.yaml
+    python torchreid/scripts/main.py --config-file configs/bpbreid/bpbreid_occ_duke_train.yaml
 
 Make sure to download and install the human parsing labels for your training dataset before runing this command.
 

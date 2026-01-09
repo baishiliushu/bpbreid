@@ -1,6 +1,6 @@
 import os
 import cv2
-import wandb
+#import wandb
 import matplotlib.pyplot as plt
 from typing import Optional
 from pandas.io.json._normalize import nested_to_record
@@ -36,6 +36,7 @@ class Logger:
 
         self.use_wandb = cfg.project.logger.use_wandb
         if self.use_wandb:
+            import wandb
             # os.environ["WANDB_SILENT"] = "true"
             # wandb.init(config=cfg, sync_tensorboard=True, project=cfg.project.name, dir=cfg.data.save_dir, reinit=False)
             if cfg.project.logger.use_tensorboard:

@@ -15,7 +15,7 @@ __all__ = [
 class BPBreID(nn.Module):
     """Posed based feature extraction network
     """
-    def __init__(self, num_classes, pretrained, loss, model_cfg, horizontal_stripes=False, **kwargs):
+    def __init__(self, num_classes, pretrained, loss, model_cfg, horizontal_stripes=False, struct_mode=0, **kwargs):
         super(BPBreID, self).__init__()
 
         # Init config
@@ -81,6 +81,9 @@ class BPBreID(nn.Module):
                 ]
             )
 
+        # TODO: tensor postprocess merge into model; 0 -> not need , 1 -> return out0/1/5, 2 -> tensor postprocess
+        self.structure_type_for_deployment = struct_mode
+
     def init_dim_reduce_layers(self, dim_reduce_mode, spatial_feature_size, dim_reduce_output):
         self.dim_reduce_output = dim_reduce_output
         self.after_pooling_dim_reduce = False
@@ -128,6 +131,10 @@ class BPBreID(nn.Module):
         # Global spatial_features
         spatial_features = self.backbone_appearance_feature_extractor(images)  # [N, D, Hf, Wf]
         N, _, Hf, Wf = spatial_features.shape
+        if self.structure_type_for_deployment == 0:
+            print("[Debug] forward img: {}, external_pm: {}, hr-net_output:{}".format(images.shape,
+                                                                                      external_parts_masks,
+                                                                                      spatial_features.shape))
 
         if self.before_pooling_dim_reduce is not None \
                 and spatial_features.shape[1] != self.dim_reduce_output:  # When HRNet used as backbone, already done
@@ -179,6 +186,9 @@ class BPBreID(nn.Module):
         global_masks = torch.ones_like(foreground_masks)
 
         # Parts visibility
+        if self.structure_type_for_deployment != 0:
+            self.testing_binary_visibility_score = False
+
         if (self.training and self.training_binary_visibility_score) or (not self.training and self.testing_binary_visibility_score):
             pixels_parts_predictions = pixels_parts_probabilities.argmax(dim=1)  # [N, Hf, Wf]
             pixels_parts_predictions_one_hot = F.one_hot(pixels_parts_predictions, self.parts_num + 1).permute(0, 3, 1, 2)  # [N, K+1, Hf, Wf]
@@ -255,6 +265,12 @@ class BPBreID(nn.Module):
             CONCAT_PARTS: foreground_masks,  # [N, Hf, Wf]
             PARTS: parts_masks,  # [N, K, Hf, Wf]
         }
+
+        if self.structure_type_for_deployment == 1:
+            # bn_foreground_embeddings = F.normalize(bn_foreground_embeddings, p=2, dim=-1)
+            return bn_foreground_embeddings, foreground_visibility, parts_embeddings, parts_visibility
+        if self.structure_type_for_deployment == 2:
+            return bn_foreground_embeddings, foreground_visibility, parts_embeddings, parts_visibility, foreground_masks, parts_masks
 
         return embeddings, visibility_scores, id_cls_scores, pixels_cls_scores, spatial_features, masks
 

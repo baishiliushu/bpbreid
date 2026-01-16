@@ -42,12 +42,12 @@ def get_default_config():
     cfg.model.save_model_flag = False  # path to checkpoint for resume training
     # configs for our part-based model BPBreID
     cfg.model.bpbreid = CN()
-    cfg.model.bpbreid.pooling = 'gwap'  # ['gap', 'gmp', 'gwap', 'gwap2']
+    cfg.model.bpbreid.pooling = 'gmp'  # default is gwap; ['gap', 'gmp', 'gwap', 'gwap2']
     cfg.model.bpbreid.normalization = 'identity'  # ['identity', 'batch_norm_2d'] - obsolete, always use identity
     cfg.model.bpbreid.mask_filtering_training = False  # use visibility scores at training - do not have an influence on testing performance yet, to be improved
     cfg.model.bpbreid.mask_filtering_testing = True  # use visibility scores at testing - do have a big influence on testing performance when activated
     cfg.model.bpbreid.last_stride = 1  # last stride of the resnet backbone - 1 for better performance
-    cfg.model.bpbreid.dim_reduce = 'after_pooling'  #  where to apply feature dimensionality reduction (before or after global pooling) ['none', 'before_pooling', 'after_pooling', 'before_and_after_pooling', 'after_pooling_with_dropout']
+    cfg.model.bpbreid.dim_reduce = 'none'  #  DEFAULT IS after_pooling; where to apply feature dimensionality reduction (before or after global pooling) ['none', 'before_pooling', 'after_pooling', 'before_and_after_pooling', 'after_pooling_with_dropout']
     cfg.model.bpbreid.dim_reduce_output = 512  # reduce feature dimension to this value when above config is not 'none'
     cfg.model.bpbreid.backbone = 'resnet50'  # ['resnet50', 'hrnet32', 'fastreid_resnet_ibn_nl']
     cfg.model.bpbreid.learnable_attention_enabled = True  # use learnable attention mechanism to pool part features, otherwise, use fixed attention weights from external (pifpaf) heatmaps/masks

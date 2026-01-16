@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torchreid
 from torchreid.tools.extract_part_based_features import extract_reid_features
+
 from torchreid.data.masks_transforms import compute_parts_num_and_names
 from torchreid.utils import (
     Logger, check_isfile, set_random_seed, collect_env_info,
@@ -15,7 +16,7 @@ from torchreid.scripts.default_config import (
     get_default_config, lr_scheduler_kwargs, display_config_diff
 )
 from torchreid.utils.engine_state import EngineState
-
+from torchreid.tools.extract_part_based_features import extract_our_reid_features
 
 def build_datamanager(cfg):
     if cfg.data.type == 'image':
@@ -130,7 +131,7 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
-        '--config-file', type=str, default='', help='path to config file'
+        '--config-file', type=str, default='../../configs/bpbreid/bpbreid_market1501_test.yaml', help='path to config file'
     )
     parser.add_argument(
         '-s',
@@ -153,7 +154,7 @@ def main():
         '--root', type=str, default='', help='path to data root'
     )
     parser.add_argument(
-        '--save_dir', type=str, default='', help='path to output root dir'
+        '--save_dir', type=str, default='/home/leon/mount_point_c/githubs_new/sota-reid-tcks/reid-files/bpb-python-results', help='path to output root dir'
     )
     parser.add_argument(
         'opts',
@@ -180,13 +181,17 @@ def main():
     print('Starting experiment {} with job id {} and creation date {}'.format(cfg.project.experiment_id,
                                                                               cfg.project.job_id,
                                                                               cfg.project.start_time))
-    engine.run(**engine_run_kwargs(cfg))
-    print(
-        'End of experiment {} with job id {} and creation date {}'.format(cfg.project.experiment_id, cfg.project.job_id,
-                                                                          cfg.project.start_time))
+
     if cfg.inference.enabled:
         print("Starting inference on external data")
-        extract_reid_features(cfg, cfg.inference.input_folder, cfg.data.save_dir, model)
+        extract_our_reid_features(cfg, cfg.inference.input_folder, cfg.data.save_dir, model)
+        # TODO: normalize / distances / visualize
+
+    else:
+        engine.run(**engine_run_kwargs(cfg))
+        print(
+        'End of experiment {} with job id {} and creation date {}'.format(cfg.project.experiment_id, cfg.project.job_id,
+        cfg.project.start_time))
 
 
 def build_config(args=None, config_file=None, config=None):

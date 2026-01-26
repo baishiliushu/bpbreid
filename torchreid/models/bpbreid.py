@@ -186,13 +186,28 @@ class BPBreID(nn.Module):
         global_masks = torch.ones_like(foreground_masks)
 
         # Parts visibility
-        if self.structure_type_for_deployment != 0:
+        if self.structure_type_for_deployment == 2 or self.structure_type_for_deployment == 4:
             self.testing_binary_visibility_score = False
 
         if (self.training and self.training_binary_visibility_score) or (not self.training and self.testing_binary_visibility_score):
-            pixels_parts_predictions = pixels_parts_probabilities.argmax(dim=1)  # [N, Hf, Wf]
-            pixels_parts_predictions_one_hot = F.one_hot(pixels_parts_predictions, self.parts_num + 1).permute(0, 3, 1, 2)  # [N, K+1, Hf, Wf]
-            parts_visibility = pixels_parts_predictions_one_hot.amax(dim=(2, 3)).to(torch.bool)  # [N, K+1]
+            pixels_parts_predictions_org = pixels_parts_probabilities.argmax(dim=1)  # [N, Hf, Wf]
+
+            #pixels_parts_predictions = F.one_hot(pixels_parts_predictions_org, self.parts_num + 1) #
+            #pixels_parts_predictions_one_hot = pixels_parts_predictions.permute(0, 3, 1, 2)  # [N, K+1, Hf, Wf]
+            # parts_visibility = pixels_parts_predictions_one_hot.amax(dim=(2, 3))  # [N, K+1]
+            # parts_visibility = parts_visibility.to(torch.bool)
+
+            one_hot = torch.zeros(*pixels_parts_predictions_org.shape, self.parts_num + 1, dtype=pixels_parts_predictions_org.dtype)
+            one_hot.scatter_(3, pixels_parts_predictions_org.unsqueeze(3), 1)
+            one_hot.to(torch.int32)
+            one_hot = one_hot.permute(0, 3, 1, 2)
+            one_hot = one_hot.amax(dim=(2, 3))
+
+            if self.structure_type_for_deployment == 0:
+                parts_visibility = one_hot.to(torch.bool)
+            else:
+                parts_visibility = one_hot
+
         else:
             parts_visibility = pixels_parts_probabilities.amax(dim=(2, 3))  # [N, K+1]
         background_visibility = parts_visibility[:, 0]  # [N]
@@ -215,7 +230,7 @@ class BPBreID(nn.Module):
         if self.after_pooling_dim_reduce:
             global_embeddings = self.global_after_pooling_dim_reduce(global_embeddings)  # [N, D]
             foreground_embeddings = self.foreground_after_pooling_dim_reduce(foreground_embeddings)  # [N, D]
-            background_embeddings = self.background_after_pooling_dim_reduce(background_embeddings)  # [N, D]
+            background_embeddings = self.background_after_cudapooling_dim_reduce(background_embeddings)  # [N, D]
             parts_embeddings = self.parts_after_pooling_dim_reduce(parts_embeddings)  # [N, M, D]
 
         # Concatenated part features
@@ -268,9 +283,13 @@ class BPBreID(nn.Module):
 
         if self.structure_type_for_deployment == 1:
             # bn_foreground_embeddings = F.normalize(bn_foreground_embeddings, p=2, dim=-1)
-            return bn_foreground_embeddings, foreground_visibility, parts_embeddings, parts_visibility
+            return bn_foreground_embeddings, parts_embeddings, foreground_visibility, parts_visibility, foreground_masks, parts_masks
         if self.structure_type_for_deployment == 2:
-            return bn_foreground_embeddings, foreground_visibility, parts_embeddings, parts_visibility, foreground_masks, parts_masks
+            return bn_foreground_embeddings, parts_embeddings, foreground_visibility, parts_visibility, foreground_masks, parts_masks
+        if self.structure_type_for_deployment == 3:
+            return bn_foreground_embeddings, parts_embeddings, pixels_parts_probabilities, foreground_masks, parts_masks
+        if self.structure_type_for_deployment == 4:
+            return bn_foreground_embeddings, parts_embeddings, foreground_visibility, parts_visibility
 
         return embeddings, visibility_scores, id_cls_scores, pixels_cls_scores, spatial_features, masks
 

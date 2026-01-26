@@ -13,15 +13,18 @@ import numpy as np
 # /home/leon/work_c_p_p/githubs/deep-person-reid/deep-person-reid-master/compare_images/special-rois
 IMG_ENDLESS = "jpg"
 BASE_PATH = "/home/leon/work_c_p_p/githubs/deep-person-reid/deep-person-reid-master/compare_images"
-IMG1_PATH = f"{BASE_PATH}/e1-1.{IMG_ENDLESS}"   # special-rois/id4-g
-IMG2_PATH = f"{BASE_PATH}/1105-display/Screenshot from 2025-11-06 14-29-45.png"   # special-rois/id2-e2
+IMG1_PATH = f"{BASE_PATH}/1105-display/Screenshot from 2025-11-06 14-13-41.png"   #e1-1.{IMG_ENDLESS} special-rois/id4-g.png
+IMG2_PATH = f"{BASE_PATH}/1105-display/Screenshot from 2025-11-06 14-15-20.png"   # special-rois/id2-e2 ; 1105-display/Screenshot from 2025-11-06 14-29-45.png
 
 # 模型和配置文件路径（固定后无需修改）
-MODEL_PATH = "/home/leon/mount_point_c/githubs_new/sota-reid-tcks/reid-files/bpb-pyhon-models/bpbreid_market1501_hrnet32_10642.pth"
+MODEL_PATH = "/home/leon/mount_point_c/githubs_new/sota-reid-tcks/reid-files/onnx-files/bpbreid_dukemtmcreid_hrnet32_10669.pth" # bpbreid_dukemtmcreid_hrnet32_10669 bpbreid_market1501_hrnet32_10642
 CONFIG_FILE = "/home/leon/mount_point_c/githubs_new/sota-reid-tcks/bpbreid/configs/bpbreid/bpbreid_market1501_test.yaml"
 
 # 是否使用GPU（默认开启）
 USE_GPU = False
+VISUAL_BOOL = True
+VISUAL_MIN = 0.55
+DOEXPORT = False
 
 # ========================
 # 仅导入必需模块（完全来自你的代码）
@@ -67,6 +70,62 @@ def extract_test_embeddings(model_output, test_embeddings):
     visibility_scores = torch.cat(visibility_scores_list, dim=1)  # [N, P+F]
     embeddings_masks = torch.cat(embeddings_masks_list, dim=1)  # [N, P+F, Hf, Wf]
     return embeddings, visibility_scores, embeddings_masks, pixels_cls_scores
+
+
+def extract_test_embeddings_postprocess(model_output, parts_num=5, infer_mode=3):
+
+    if infer_mode == 1 or infer_mode == 2:
+        bn_foreground_embeddings, parts_embeddings, foreground_visibility, parts_visibility, foreground_masks, parts_masks = model_output
+    if infer_mode == 3:
+        bn_foreground_embeddings, parts_embeddings, pixels_parts_probabilities, foreground_masks, parts_masks = model_output
+
+        pixels_parts_predictions_org = pixels_parts_probabilities.argmax(dim=1)  # [N, Hf, Wf]
+
+        # pixels_parts_predictions = F.one_hot(pixels_parts_predictions_org, self.parts_num + 1) #
+        # pixels_parts_predictions_one_hot = pixels_parts_predictions.permute(0, 3, 1, 2)  # [N, K+1, Hf, Wf]
+        # parts_visibility = pixels_parts_predictions_one_hot.amax(dim=(2, 3))  # [N, K+1]
+        # parts_visibility = parts_visibility.to(torch.bool)
+
+        one_hot = torch.zeros(*pixels_parts_predictions_org.shape, parts_num + 1,
+                              dtype=pixels_parts_predictions_org.dtype)
+        one_hot.scatter_(3, pixels_parts_predictions_org.unsqueeze(3), 1)
+        one_hot.to(torch.int32)
+        one_hot = one_hot.permute(0, 3, 1, 2)
+        one_hot = one_hot.amax(dim=(2, 3))
+        all_visibility = one_hot.to(torch.bool)
+        foreground_visibility = all_visibility.amax(dim=1)  # [N]
+        parts_visibility = all_visibility[:, 1:]  # [N, K]
+
+    embeddings = {
+        GLOBAL: None,  # [N, D]
+        BACKGROUND: None,  # [N, D]
+        FOREGROUND: None,  # [N, D]
+        CONCAT_PARTS: None,  # [N, K*D]
+        PARTS: parts_embeddings,  # [N, K, D]
+        BN_GLOBAL: None,  # [N, D]
+        BN_BACKGROUND: None,  # [N, D]
+        BN_FOREGROUND: bn_foreground_embeddings,  # [N, D]
+        BN_CONCAT_PARTS: None,  # [N, K*D]
+        BN_PARTS: None,  # [N, K, D]
+    }
+
+    visibility_scores = {
+        GLOBAL: None,  # [N]
+        BACKGROUND: None,  # [N]
+        FOREGROUND: foreground_visibility,  # [N]
+        CONCAT_PARTS: None,  # [N]
+        PARTS: parts_visibility,  # [N, K]
+    }
+
+    masks = {
+        GLOBAL: None,  # [N, Hf, Wf]
+        BACKGROUND: None,  # [N, Hf, Wf]
+        FOREGROUND: foreground_masks,  # [N, Hf, Wf]
+        CONCAT_PARTS: foreground_masks,  # [N, Hf, Wf]
+        PARTS: parts_masks,  # [N, K, Hf, Wf]
+    }
+
+    return embeddings, visibility_scores, None, None, None, masks
 
 
 def normalize_features(features):
@@ -146,7 +205,7 @@ def file_size(path):
 
 def export_onnx(model, im, pth_path, external_parts_masks=None, opset=11, train=False, dynamic=False, simplify=False):
     # ONNX export
-    model.to(str('cpu'))
+    # model.to(str('cpu'))
     print("export {} with opset-{}, dynamic {}, simplify {}".format(pth_path, opset, dynamic, simplify))
     try:
         import onnx
@@ -155,15 +214,15 @@ def export_onnx(model, im, pth_path, external_parts_masks=None, opset=11, train=
         print(f'\nStarting export with onnx {onnx.__version__}...')
 
         torch.onnx.export(
-            model.cpu() if dynamic else model,  # --dynamic only compatible with cpu
-            im.cpu() if dynamic else im,
+            model if dynamic else model,  # --dynamic only compatible with cpu
+            im if dynamic else im,
             f,
             verbose=False,
             opset_version=opset,
             training=torch.onnx.TrainingMode.TRAINING if train else torch.onnx.TrainingMode.EVAL,
             do_constant_folding=not train,
             input_names=['images'],  # 'images'
-            output_names=['output'], # 'output'
+            output_names=['ff', 'fp', 'vf', 'vp'], # 'mf', 'mp'
             dynamic_axes={
                 'images': {
                     0: '1',  # 'batch',
@@ -206,18 +265,32 @@ def export_onnx(model, im, pth_path, external_parts_masks=None, opset=11, train=
 # ========================
 # 核心相似度计算
 # ========================
-def compute_similarity(img1, img2, model, cfg, img1_path="", img2_path=""):
+def visual_pair_score_map(vi_q, vi_g, min_t=VISUAL_MIN, bool_map=VISUAL_BOOL):
+    mapped_value = min(vi_q, vi_g)
+
+    if mapped_value > min_t:
+        mapped_value = (vi_q + vi_g) * 0.5
+        if bool_map:
+            mapped_value = 1
+    else:
+        mapped_value = 0
+    return mapped_value
+
+
+def compute_similarity(img1, img2, model, cfg, img1_path="", img2_path="", infer_mode=0):
     with torch.no_grad():
         # 模型推理（明确参数名）
         output1 = model(images=img1, external_parts_masks=None)
         output2 = model(images=img2, external_parts_masks=None)
-
+        feat1, vis1, mask1, pixel_cls1 = None, None, None, None
         # 提取特征和可见性分数
+        if infer_mode > 0:
+            output1 = extract_test_embeddings_postprocess(output1, infer_mode=infer_mode)
+            output2 = extract_test_embeddings_postprocess(output2, infer_mode=infer_mode)
+
         feat1, vis1, mask1, pixel_cls1 = extract_test_embeddings(output1, cfg.test_embeddings)
         feat2, vis2, mask2, pixel_cls2 = extract_test_embeddings(output2, cfg.test_embeddings)
-
-        print("[Debug]SHAPES -> features:{}, visuals:{}, masks:{}, pixel_cls:".format(feat1.shape, vis1.shape,
-                                                                                      mask1.shape, pixel_cls1.shape))
+        print("[Debug]SHAPES -> features:{}, visuals:{}, masks:{}".format(feat1.shape, vis1.shape, mask1.shape))
         print("{} \n {}".format(img1_path, vis1))
         print("{} \n {}".format(img2_path, vis2))
         # 特征归一化
@@ -264,7 +337,7 @@ def compute_similarity(img1, img2, model, cfg, img1_path="", img2_path=""):
             dist_combine_strat='mean',  # 对应论文公式9的加权平均
             batch_size_pairwise_dist_matrix=5000,
             use_gpu=cfg.use_gpu,
-            metric='euclidean'  # 官方欧式距离 cosine
+            metric='euclidean'  # 官方欧式距离
             )
 
         # 2. 提取总距离（压缩维度为标量）
@@ -284,10 +357,11 @@ def compute_similarity(img1, img2, model, cfg, img1_path="", img2_path=""):
             dist_combine_strat='mean',  # 对应论文公式9的加权平均
             batch_size_pairwise_dist_matrix=5000,
             use_gpu=cfg.use_gpu,
-            metric='cosine'  # 官方欧式距离
+            metric='cosine'  # 官方cosine
         )
         cos_sim_total = nn.functional.cosine_similarity(feat1, feat2, dim=2)
         ol_dist_total = torch.sqrt(torch.sum((feat1.squeeze(0) - feat2.squeeze(0)) ** 2, dim=1)).unsqueeze(0)
+
 
         cos_sim_foreground = nn.functional.cosine_similarity(feat1[:, 0:1, :], feat2[:, 0:1, :], dim=2)
         feat1_f = feat1[:, 0:1, :]
@@ -297,8 +371,39 @@ def compute_similarity(img1, img2, model, cfg, img1_path="", img2_path=""):
         mean_cos = 0.0
         mean_dist = 3.0
 
-        print("cos_all : {}\ndist_all : {}\ncos_fore : {}\ndist_fore : {}".format(cos_sim_total, ol_dist_total,
+        print("[Debug]cos_all : \n{}\ndist_all : {}\ncos_fore : {}\ndist_fore : {}".format(cos_sim_total, ol_dist_total,
                                                                                   cos_sim_foreground, ol_dist_foreground))
+
+        #fused = sum(weights[i] * scores[i]) / sum(weights)
+        vis1 = vis1.squeeze().tolist()
+        vis2 = vis2.squeeze().tolist()
+        cos_sim_total = cos_sim_total.squeeze().tolist()
+        v_weights = list()
+        if len(vis1) == len(vis2) and len(vis1) > 1:
+            if cos_sim_total[0] < 0.5:
+                print("[INFO]Almost should believe they're different person BASED the low foreground cosine.")
+            for i in range(1, len(vis1)):
+                v_weights.append(visual_pair_score_map(vis1[i], vis2[i]))
+
+            parts_cos_seen = list()
+            for i in range(0, len(v_weights)):
+                cos_weight = cos_sim_total[i + 1] * v_weights[i]
+                parts_cos_seen.append(cos_weight)
+
+            fuse_part_cos = sum(parts_cos_seen) / max(sum(v_weights), 0.0001)
+            print("[Debug]cos_fused : {}".format(fuse_part_cos))
+            v_foreground = min(vis1[0], vis2[0])
+            if sum(v_weights) < 4:
+                print("[INFO]Maybe should believe part value INSTEAD-OF foreground value.")
+
+            if v_foreground > VISUAL_MIN:
+                v_foreground = visual_pair_score_map(vis1[0], vis2[0])
+                v_weights.append(v_foreground)
+                parts_cos_seen.append(cos_sim_total[0] * v_foreground)
+                fuse_part_foreground = sum(parts_cos_seen) / max(sum(v_weights), 0.0001)
+                print("[Debug]cos_fused_foreground : {}".format(fuse_part_foreground))
+
+
         return total_dist, similarity.squeeze().cpu().numpy()
 
 
@@ -311,9 +416,10 @@ def main():
     print(f"✅ 配置加载完成：{CONFIG_FILE}")
 
     # 2. 构建模型并加载权重
+    INFER_MODE = 2   # 1 -1 2 3
     print(f"加载预训练模型：{MODEL_PATH}")
-    model = build_model_and_load_weights(cfg, struct_mode=-1)
-    print("✅ 模型加载完成，已切换至推理模式")
+    model = build_model_and_load_weights(cfg, struct_mode=INFER_MODE)
+    print("✅ 模型加载完成，已切换至推理模式 (MODE {})".format(INFER_MODE))
 
     # 3. 预处理两张图片
     print(f"加载图片：\n{IMG1_PATH}\n{IMG2_PATH}")
@@ -328,18 +434,18 @@ def main():
     img2 = preprocess_image(IMG2_PATH, cfg)
 
     # 4. 计算相似度
-    total_dist, similarity = compute_similarity(img1, img2, model, cfg, IMG1_PATH, IMG2_PATH)
+    total_dist, similarity = compute_similarity(img1, img2, model, cfg, IMG1_PATH, IMG2_PATH, infer_mode=INFER_MODE)
 
     # x. EXPORT
-    DOEXPORT = False
+
     if DOEXPORT:
-        model_4_export = build_model_and_load_weights(cfg, struct_mode=2)
-        export_onnx(model_4_export, img1, "/home/leon/mount_point_c/githubs_new/sota-reid-tcks/reid-files/bpbreid.pth",
+        model_4_export = build_model_and_load_weights(cfg, struct_mode=4)
+        export_onnx(model_4_export, img1, MODEL_PATH,
                     simplify=True)
 
     # 5. 输出结果
     print("\n" + "=" * 60)
-    print("BPBreID 两张图片相似度计算结果")
+    print(f"BPBreID 两张图片相似度计算结果(infer mode = {INFER_MODE})")
     print("=" * 60)
     print(f"预训练模型：{os.path.basename(MODEL_PATH)}")
     print(f"图片1：{os.path.basename(IMG1_PATH)}")

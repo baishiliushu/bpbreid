@@ -62,7 +62,7 @@ def save_checkpoint(
         shutil.copy(fpath, osp.join(osp.dirname(fpath), 'model-best.pth.tar'))
 
 
-def load_checkpoint(fpath):
+def load_checkpoint(fpath, weights_only=False):
     r"""Loads checkpoint.
 
     ``UnicodeDecodeError`` can be well handled, which means
@@ -85,7 +85,7 @@ def load_checkpoint(fpath):
         raise FileNotFoundError('File is not found at "{}"'.format(fpath))
     map_location = None if torch.cuda.is_available() else 'cpu'
     try:
-        checkpoint = torch.load(fpath, map_location=map_location)
+        checkpoint = torch.load(fpath, map_location=map_location, weights_only=weights_only)
     except UnicodeDecodeError:
         pickle.load = partial(pickle.load, encoding="latin1")
         pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
@@ -257,7 +257,7 @@ def count_num_param(model):
     return num_param
 
 
-def load_pretrained_weights(model, weight_path):
+def load_pretrained_weights(model, weight_path, weights_only=False):
     r"""Loads pretrained weights to model.
 
     Features::
@@ -273,7 +273,7 @@ def load_pretrained_weights(model, weight_path):
         >>> weight_path = 'log/my_model/model-best.pth.tar'
         >>> load_pretrained_weights(model, weight_path)
     """
-    checkpoint = load_checkpoint(weight_path)
+    checkpoint = load_checkpoint(weight_path, weights_only)
     if 'state_dict' in checkpoint:
         state_dict = checkpoint['state_dict']
     else:

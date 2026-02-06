@@ -12,19 +12,21 @@ import numpy as np
 # 图片路径（直接修改这两行即可切换图片）
 # /home/leon/work_c_p_p/githubs/deep-person-reid/deep-person-reid-master/compare_images/special-rois
 IMG_ENDLESS = "jpg"
-BASE_PATH = "/home/leon/work_c_p_p/githubs/deep-person-reid/deep-person-reid-master/compare_images"
-IMG1_PATH = f"{BASE_PATH}/1105-display/Screenshot from 2025-11-06 14-13-41.png"   #e1-1.{IMG_ENDLESS} special-rois/id4-g.png
-IMG2_PATH = f"{BASE_PATH}/1105-display/Screenshot from 2025-11-06 14-15-20.png"   # special-rois/id2-e2 ; 1105-display/Screenshot from 2025-11-06 14-29-45.png
+BASE_PATH = "/home/leon/mount_point_d/test-result-moved/reid_datas/npy_todo/" #"/home/leon/work_c_p_p/githubs/deep-person-reid/deep-person-reid-master/compare_images"
+IMG1_PATH = f"{BASE_PATH}/src/squence_based_time/d17/1.png"   #e1-1.{IMG_ENDLESS} special-rois/id4-g.png Screenshot from 2025-11-06 14-13-41.png
+IMG2_PATH = f"{BASE_PATH}/src/squence_based_time/d17/"   # special-rois/id2-e2 ; 1105-display/Screenshot from 2025-11-06 14-29-45.png Screenshot from 2025-11-06 14-15-20.png
 
 # 模型和配置文件路径（固定后无需修改）
-MODEL_PATH = "/home/leon/mount_point_c/githubs_new/sota-reid-tcks/reid-files/onnx-files/bpbreid_dukemtmcreid_hrnet32_10669.pth" # bpbreid_dukemtmcreid_hrnet32_10669 bpbreid_market1501_hrnet32_10642
+# MODEL_PATH = "/home/leon/mount_point_c/githubs_new/sota-reid-tcks/reid-files/onnx-files/bpbreid_market1501_hrnet32_10642.pth" # bpbreid_market1501_hrnet32_10642.pth # bpbreid_dukemtmcreid_hrnet32_10669 bpbreid_market1501_hrnet32_10642
+MODEL_PATH = "/home/leon/mount_point_c/githubs_new/sota-reid-tcks/reid-files/onnx-files/bpbreid_models/market1-120_model.state_no_pkl.pth"
+
 CONFIG_FILE = "/home/leon/mount_point_c/githubs_new/sota-reid-tcks/bpbreid/configs/bpbreid/bpbreid_market1501_test.yaml"
 
 # 是否使用GPU（默认开启）
 USE_GPU = False
 VISUAL_BOOL = True
 VISUAL_MIN = 0.55
-DOEXPORT = False
+DO_EXPORT = False
 
 # ========================
 # 仅导入必需模块（完全来自你的代码）
@@ -62,17 +64,23 @@ def extract_test_embeddings(model_output, test_embeddings):
             test_emb = bn_correspondants[test_emb]
         vis_scores = visibility_scores[test_emb]
         visibility_scores_list.append(vis_scores if len(vis_scores.shape) == 2 else vis_scores.unsqueeze(1))
-        pt_masks = parts_masks[test_emb]
-        embeddings_masks_list.append(pt_masks if len(pt_masks.shape) == 4 else pt_masks.unsqueeze(1))
+        if parts_masks is not None:
+            pt_masks = parts_masks[test_emb]
+            embeddings_masks_list.append(pt_masks if len(pt_masks.shape) == 4 else pt_masks.unsqueeze(1))
 
     assert len(embeddings) != 0
     embeddings = torch.cat(embeddings_list, dim=1)  # [N, P+F, D]
     visibility_scores = torch.cat(visibility_scores_list, dim=1)  # [N, P+F]
-    embeddings_masks = torch.cat(embeddings_masks_list, dim=1)  # [N, P+F, Hf, Wf]
+
+    embeddings_masks = None
+    if len(embeddings_masks_list) > 0:
+        embeddings_masks = torch.cat(embeddings_masks_list, dim=1)  # [N, P+F, Hf, Wf]
     return embeddings, visibility_scores, embeddings_masks, pixels_cls_scores
 
 
 def extract_test_embeddings_postprocess(model_output, parts_num=5, infer_mode=3):
+    foreground_masks = None
+    parts_masks = None
 
     if infer_mode == 1 or infer_mode == 2:
         bn_foreground_embeddings, parts_embeddings, foreground_visibility, parts_visibility, foreground_masks, parts_masks = model_output
@@ -95,6 +103,17 @@ def extract_test_embeddings_postprocess(model_output, parts_num=5, infer_mode=3)
         all_visibility = one_hot.to(torch.bool)
         foreground_visibility = all_visibility.amax(dim=1)  # [N]
         parts_visibility = all_visibility[:, 1:]  # [N, K]
+    if infer_mode == 7:
+        bn_foreground_embeddings, parts_embeddings, foreground_visibility, parts_visibility = model_output
+
+    N = 10
+    #values = bn_foreground_embeddings[0, :N].detach().cpu().tolist()  # 转为Python列表
+    values = bn_foreground_embeddings.reshape(-1)[:N].detach().cpu().tolist()
+    print(" ".join(f"{v:.4f}" for v in values))
+
+    for i in range(parts_embeddings.size(1)):  # 遍历5个部位
+        vals = parts_embeddings[0, i, :N].detach().cpu().tolist()
+        print(f"Part {i} (前{N}维): " + " ".join(f"{v:.4f}" for v in vals))
 
     embeddings = {
         GLOBAL: None,  # [N, D]
@@ -124,6 +143,8 @@ def extract_test_embeddings_postprocess(model_output, parts_num=5, infer_mode=3)
         CONCAT_PARTS: foreground_masks,  # [N, Hf, Wf]
         PARTS: parts_masks,  # [N, K, Hf, Wf]
     }
+    if foreground_masks is None or parts_masks is None:
+        masks = None
 
     return embeddings, visibility_scores, None, None, None, masks
 
@@ -169,6 +190,8 @@ def preprocess_image(img_path, cfg):
 
 # ========================
 # 构建模型
+#ckpt = torch.load("market1-120_model.pth.tar", map_location="cpu")
+#torch.save(ckpt["state_dict"], "market1-120_state_dict.pth")
 # ========================
 def build_model_and_load_weights(cfg, struct_mode=0):
     model = build_model(
@@ -180,7 +203,7 @@ def build_model_and_load_weights(cfg, struct_mode=0):
         config=cfg,
         struct_mode=struct_mode
     )
-    load_pretrained_weights(model, MODEL_PATH)
+    load_pretrained_weights(model, MODEL_PATH, weights_only=False)
     if cfg.use_gpu:
         model = nn.DataParallel(model).cuda()
     model.eval()
@@ -209,36 +232,46 @@ def export_onnx(model, im, pth_path, external_parts_masks=None, opset=11, train=
     print("export {} with opset-{}, dynamic {}, simplify {}".format(pth_path, opset, dynamic, simplify))
     try:
         import onnx
-
+        from onnx import shape_inference
         f = "{}.onnx".format(pth_path)
         print(f'\nStarting export with onnx {onnx.__version__}...')
 
         torch.onnx.export(
-            model if dynamic else model,  # --dynamic only compatible with cpu
-            im if dynamic else im,
+            model,  #  if dynamic else model --dynamic only compatible with cpu
+            im, #if dynamic else im
             f,
             verbose=False,
             opset_version=opset,
             training=torch.onnx.TrainingMode.TRAINING if train else torch.onnx.TrainingMode.EVAL,
             do_constant_folding=not train,
             input_names=['images'],  # 'images'
-            output_names=['ff', 'fp', 'vf', 'vp'], # 'mf', 'mp'
+            output_names=['ff', 'fp', 'vf', 'vp'], # 'ff', 'fp', 'vf', 'vp', 'mf', 'mp'
             dynamic_axes={
                 'images': {
                     0: '1',  # 'batch',
                 },  # shape(x,3,256,128)
-                'output': {
-                    0: '1',  # 'batch',
-                }  # shape(x,2048)
+                # 'output': {
+                #     0: '1',  # 'batch',
+                # }  # shape(x,2048)
+                # 'fp': {
+                #     0: '1',
+                # },
+                # 'vf':{0: '1'},
+                # 'vp': {
+                #     0: '1',
+                # }
             } if dynamic else None
         )
         # Checks
         model_onnx = onnx.load(f)  # load onnx model
         onnx.checker.check_model(model_onnx)  # check onnx model
+        model_onnx = shape_inference.infer_shapes(model_onnx)
+
         onnx.save(model_onnx, f)
         f = "{}.simonnx.onnx".format(pth_path)
         # Simplify
         if simplify:
+
             try:
                 cuda = torch.cuda.is_available()
                 import onnxsim
@@ -247,7 +280,7 @@ def export_onnx(model, im, pth_path, external_parts_masks=None, opset=11, train=
                 model_onnx, check = onnxsim.simplify(
                     model_onnx,
                     dynamic_input_shape=dynamic,
-                    input_shapes={'t0': list(im.shape)} if dynamic else None)
+                    input_shapes={'images': list(im.shape)} if dynamic else None)
                 assert check, 'assert check failed'
                 onnx.save(model_onnx, f)
             except Exception as e:
@@ -290,7 +323,7 @@ def compute_similarity(img1, img2, model, cfg, img1_path="", img2_path="", infer
 
         feat1, vis1, mask1, pixel_cls1 = extract_test_embeddings(output1, cfg.test_embeddings)
         feat2, vis2, mask2, pixel_cls2 = extract_test_embeddings(output2, cfg.test_embeddings)
-        print("[Debug]SHAPES -> features:{}, visuals:{}, masks:{}".format(feat1.shape, vis1.shape, mask1.shape))
+        print("[Debug]SHAPES -> features:{}, visuals:{}".format(feat1.shape, vis1.shape))
         print("{} \n {}".format(img1_path, vis1))
         print("{} \n {}".format(img2_path, vis2))
         # 特征归一化
@@ -375,6 +408,9 @@ def compute_similarity(img1, img2, model, cfg, img1_path="", img2_path="", infer
                                                                                   cos_sim_foreground, ol_dist_foreground))
 
         #fused = sum(weights[i] * scores[i]) / sum(weights)
+        fuse_part_cos = -1.0
+        fuse_part_foreground = -1.0
+
         vis1 = vis1.squeeze().tolist()
         vis2 = vis2.squeeze().tolist()
         cos_sim_total = cos_sim_total.squeeze().tolist()
@@ -391,7 +427,7 @@ def compute_similarity(img1, img2, model, cfg, img1_path="", img2_path="", infer
                 parts_cos_seen.append(cos_weight)
 
             fuse_part_cos = sum(parts_cos_seen) / max(sum(v_weights), 0.0001)
-            print("[Debug]cos_fused : {}".format(fuse_part_cos))
+            print("[Debug]cos_fused : {:.4f}".format(fuse_part_cos))
             v_foreground = min(vis1[0], vis2[0])
             if sum(v_weights) < 4:
                 print("[INFO]Maybe should believe part value INSTEAD-OF foreground value.")
@@ -401,10 +437,10 @@ def compute_similarity(img1, img2, model, cfg, img1_path="", img2_path="", infer
                 v_weights.append(v_foreground)
                 parts_cos_seen.append(cos_sim_total[0] * v_foreground)
                 fuse_part_foreground = sum(parts_cos_seen) / max(sum(v_weights), 0.0001)
-                print("[Debug]cos_fused_foreground : {}".format(fuse_part_foreground))
+                print("[Debug]cos_fused_foreground : {:.4f}".format(fuse_part_foreground))
+        print("visual w: {}".format(v_weights))
 
-
-        return total_dist, similarity.squeeze().cpu().numpy()
+        return total_dist, similarity.squeeze().cpu().numpy(), fuse_part_cos, fuse_part_foreground
 
 
 # ========================
@@ -416,44 +452,64 @@ def main():
     print(f"✅ 配置加载完成：{CONFIG_FILE}")
 
     # 2. 构建模型并加载权重
-    INFER_MODE = 2   # 1 -1 2 3
+    INFER_MODE = 7   # 1 -1 2 3
     print(f"加载预训练模型：{MODEL_PATH}")
-    model = build_model_and_load_weights(cfg, struct_mode=INFER_MODE)
-    print("✅ 模型加载完成，已切换至推理模式 (MODE {})".format(INFER_MODE))
 
-    # 3. 预处理两张图片
-    print(f"加载图片：\n{IMG1_PATH}\n{IMG2_PATH}")
-
-    gallery_imgs = list()
-    query_imgs = list()
-    if os.path.isdir(IMG1_PATH):
-        _path = IMG1_PATH
-        os.listdir(_path)
-
+    # 3. 预处理张图片
+    print(f"加载图片：\n{IMG1_PATH}")
     img1 = preprocess_image(IMG1_PATH, cfg)
-    img2 = preprocess_image(IMG2_PATH, cfg)
-
-    # 4. 计算相似度
-    total_dist, similarity = compute_similarity(img1, img2, model, cfg, IMG1_PATH, IMG2_PATH, infer_mode=INFER_MODE)
 
     # x. EXPORT
-
-    if DOEXPORT:
-        model_4_export = build_model_and_load_weights(cfg, struct_mode=4)
+    if DO_EXPORT:
+        model_4_export = build_model_and_load_weights(cfg, struct_mode=-1)
         export_onnx(model_4_export, img1, MODEL_PATH,
                     simplify=True)
 
-    # 5. 输出结果
-    print("\n" + "=" * 60)
+    model = build_model_and_load_weights(cfg, struct_mode=INFER_MODE)
+    print("✅ 模型加载完成，已切换至推理模式 (MODE {})".format(INFER_MODE))
+
+    gallery_image_paths = list()
+    if os.path.isdir(IMG2_PATH):
+        # TODO: pick up only in ['.jpg', '.png']
+        # for i in  os.listdir(IMG2_PATH):
+        #     if i.endswith(".jpg")
+        img_files = os.listdir(IMG2_PATH)
+        img_files = sorted(img_files, key=lambda x: int(x.split('.')[0]))
+        gallery_image_paths = [os.path.join(IMG2_PATH, i) for i in img_files]
+
+    else:
+        gallery_image_paths.append(IMG2_PATH)
+
+    q_file_name = os.path.basename(IMG1_PATH)
+    result_infos = list()
+    for gpath in  gallery_image_paths:
+        g_file_name = os.path.basename(gpath)
+        print("\n" + "=" * 60)
+        print(f"BPBreID 两张图片相似度计算结果(infer mode = {INFER_MODE})")
+        print(f"预训练模型：{os.path.basename(MODEL_PATH)}")
+        print(f"图片1：{q_file_name}")
+        print(f"图片2：{g_file_name}")
+        print("=" * 60)
+
+        # 4. 计算相似度
+        img2 = preprocess_image(gpath, cfg)
+        total_dist, similarity, cos_by_parts, cos_by_all = compute_similarity(img1, img2, model, cfg, IMG1_PATH, gpath, infer_mode=INFER_MODE)
+        # 5. 输出结果
+        print(f"euclidean距离（越小越相似）：{total_dist:.4f}")
+        print(f"cos_official相似度（越小越相似）：{similarity:.4f}")
+        print("-" * 60)
+        rst = {"g_file": g_file_name, "cos_all":float("{:.5f}".format(cos_by_all)), "cos_parts": float("{:.5f}".format(cos_by_parts)), "eucl": f"{total_dist:.3f}", "cos_official": f"{similarity:.3f}"}
+        result_infos.append(rst)
+
+    results_sort_key = 'cos_parts'
+    result_infos = sorted(result_infos, key=lambda x: x.get(results_sort_key, float('-inf')), reverse=True)
+    for r in result_infos:
+        print("{}".format(r))
+    print(f"图片query：{q_file_name}, SORT-KEY {results_sort_key}")
     print(f"BPBreID 两张图片相似度计算结果(infer mode = {INFER_MODE})")
-    print("=" * 60)
     print(f"预训练模型：{os.path.basename(MODEL_PATH)}")
-    print(f"图片1：{os.path.basename(IMG1_PATH)}")
-    print(f"图片2：{os.path.basename(IMG2_PATH)}")
-    print(f"euclidean距离（越小越相似）：{total_dist:.4f}")
-    print(f"consine相似度：{similarity:.4f}")
-    print("=" * 60)
 
 
 if __name__ == '__main__':
     main()
+
